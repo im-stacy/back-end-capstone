@@ -1,56 +1,82 @@
-from os import abort
-import os
-from flask import Blueprint, request, jsonify, make_response
+import json
+from flask import Blueprint, request, jsonify
 from app import db
 from models.recipe import Recipe
 from models.ingredient import Ingredient
-import requests
-
+from models.RecipeIngredient import RecipeIngredient
 
 recipes_bp = Blueprint("recipes", __name__, url_prefix="/recipes")
 ingredients_bp = Blueprint("ingredients", __name__, url_prefix="/ingredients")
 
-# helper function
-def validate_model(cls, model_id):
-    try: 
-        model_id = int(model_id)
-    except:
-        abort(make_response({"message": f"{cls.__name__} {model_id} invalid"}, 400)) 
 
-    model = cls.query.get(model_id)
-    
-    if not model:
-        abort(make_response({"message": f"{cls.__name__} {model_id} not found"}, 404)) 
-
-    return model
-
-# for recipe 
-@recipes_bp.route("", methods = ["POST"])
+@recipes_bp.route("", methods=["POST"])
 def create_recipe():
-    name = request.json.get('name', '')
-    cooking_notes = request.json.get('cooking_notes', '')
-    ingredients = request.json.get('ingredients', {})
+    data = request.get_json()
+    name = data.get("name")
+    cooking_notes = data.get("cooking_notes")
+    ingredients_data = data.get("ingredients")
 
-    # validate inputs
-    if not name or not ingredients:
-        return make_response(jsonify({'error': 'Invalid input'}), 400)
-
-    recipe = Recipe(name = name, cooking_notes = cooking_notes)
-    
-    # add ingredients to the recipe
-    for ingredient_name, ingredient_amount in ingredients.items():
-        ingredient = Ingredient.query.filter_by(name=ingredient_name).first()
-        if not ingredient:
-            ingredient = Ingredient(name=ingredient_name, amount=ingredient_amount)
-            db.session.add(ingredient)
-        recipe.ingredients.append(ingredient)
-
+    recipe = Recipe(name=name, cooking_notes=cooking_notes)
     db.session.add(recipe)
     db.session.commit()
 
-    return make_response(jsonify({'new recipe':{
-                                            'id': recipe.id,
-                                            'name': recipe.name,
-                                            'ingredients': recipe.ingredients}}), 201)
+    for ingredient_name, amount in ingredients_data.items():
+        ingredient = Ingredient.query.filter_by(name=ingredient_name).first()
+        if not ingredient:
+            ingredient = Ingredient(name=ingredient_name)
+            db.session.add(ingredient)
+            db.session.commit()
 
-    
+        recipe_ingredient = RecipeIngredient(recipe_id=recipe.id, ingredient_id=ingredient.id, amount=amount)
+        db.session.add(recipe_ingredient)
+        db.session.commit()
+
+    return jsonify({"message": "Recipe created successfully"}), 201
+
+
+
+@recipes_bp.route("/recommend", methods=["POST"])
+def recommend_recipe():
+    data = request.get_json()
+    ingredients = data.get("ingredients")
+
+    recipes = Recipe.query.join(RecipeIngredient).join(Ingredient).filter(
+        Ingredient.name.in_(ingredients)
+    ).group_by(Recipe.id).having(
+        db.func.count(Ingredient.id) == len(ingredients)
+    ).all()
+
+    if not recipes:
+        return jsonify({"message": "No recipes found with the specified ingredients"}), 404
+
+    return jsonify([{"id": recipe.id, "name": recipe.name} for recipe in recipes]), 200
+
+
+@recipes_bp.route("/", methods=["GET"])
+def get_recipes_with_ingredients():
+    recipes = Recipe.query.all()
+
+    if not recipes:
+        return jsonify({"message": "No recipes found in the database"}), 404
+
+    recipes_data = []
+    for recipe in recipes:
+        ingredients = []
+        for recipe_ingredient in recipe.ingredients:
+            ingredient = Ingredient.query.get(recipe_ingredient.ingredient_id)
+            ingredients.append({"name": ingredient.name, "amount": recipe_ingredient.amount})
+        recipes_data.append({"id": recipe.id, "name": recipe.name, "ingredients": ingredients})
+
+    return jsonify(recipes_data), 200
+
+
+@recipes_bp.route("/<int:recipe_id>", methods=["DELETE"])
+def delete_recipe(recipe_id):
+    recipe = Recipe.query.get(recipe_id)
+    if not recipe:
+        return jsonify({"message": "Recipe not found"}), 404
+
+    db.session.delete(recipe)
+    db.session.commit()
+
+    return jsonify({"message": "Recipe deleted successfully"}), 200
