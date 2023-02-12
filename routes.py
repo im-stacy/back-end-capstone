@@ -13,8 +13,10 @@ ingredients_bp = Blueprint("ingredients", __name__, url_prefix="/ingredients")
 def create_recipe():
     data = request.get_json()
     name = data.get("name")
+    print(name)
     cooking_notes = data.get("cooking_notes")
     ingredients_data = data.get("ingredients")
+    print(ingredients_data)
 
     recipe = Recipe(name=name, cooking_notes=cooking_notes)
     db.session.add(recipe)
@@ -43,7 +45,7 @@ def recommend_recipe():
     recipes = Recipe.query.join(RecipeIngredient).join(Ingredient).filter(
         Ingredient.name.in_(ingredients)
     ).group_by(Recipe.id).having(
-        db.func.count(Ingredient.id) == len(ingredients)
+        db.func.count(Ingredient.id) >= len(ingredients)
     ).all()
 
     if not recipes:
@@ -65,18 +67,29 @@ def get_recipes_with_ingredients():
         for recipe_ingredient in recipe.ingredients:
             ingredient = Ingredient.query.get(recipe_ingredient.ingredient_id)
             ingredients.append({"name": ingredient.name, "amount": recipe_ingredient.amount})
-        recipes_data.append({"id": recipe.id, "name": recipe.name, "ingredients": ingredients})
+        recipes_data.append({"id": recipe.id, "name": recipe.name, "cooking_notes": recipe.cooking_notes, "ingredients": ingredients})
 
     return jsonify(recipes_data), 200
 
 
-@recipes_bp.route("/<int:recipe_id>", methods=["DELETE"])
+@recipes_bp.route("/<recipe_id>", methods=["DELETE"])
 def delete_recipe(recipe_id):
-    recipe = Recipe.query.get(recipe_id)
+    recipe_ingredients = RecipeIngredient.query.filter_by(recipe_id=int(recipe_id))
+    
+    for x in recipe_ingredients:
+        db.session.delete(x)
+    db.session.commit()
+    recipe = Recipe.query.get(int(recipe_id))
     if not recipe:
         return jsonify({"message": "Recipe not found"}), 404
-
     db.session.delete(recipe)
     db.session.commit()
 
     return jsonify({"message": "Recipe deleted successfully"}), 200
+
+
+
+
+
+
+
