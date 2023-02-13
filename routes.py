@@ -51,7 +51,7 @@ def recommend_recipe():
     if not recipes:
         return jsonify({"message": "No recipes found with the specified ingredients"}), 404
 
-    return jsonify([{"id": recipe.id, "name": recipe.name} for recipe in recipes]), 200
+    return jsonify([{"name": recipe.name,  "ingredients": ingredients, "cookingNotes": recipe.cooking_notes} for recipe in recipes]), 200
 
 
 @recipes_bp.route("/", methods=["GET"])
